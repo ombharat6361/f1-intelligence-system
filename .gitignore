@@ -1,0 +1,21 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# ChromaDB local data
+knowledge_base/chroma_db/
+
+# Reports output
+reports/
+
+# IDE
+.vscode/
+.idea/
+
+# Docker
+docker/secrets/
