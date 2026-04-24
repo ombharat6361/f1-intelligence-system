@@ -10,10 +10,13 @@ load_dotenv()
 @dataclass(frozen=True)
 class Settings:
     groq_api_key: str
-    aws_access_key_id: str | None
-    aws_secret_access_key: str | None
-    aws_region: str
-    s3_bucket_name: str
+    # Cloudflare R2
+    r2_access_key_id: str | None
+    r2_secret_access_key: str | None
+    r2_account_id: str | None
+    r2_bucket_name: str
+    r2_public_url: str | None   # optional custom domain or R2 public URL base
+    disable_r2: bool
     chroma_persist_dir: str
     openf1_base_url: str
     log_level: str
@@ -27,11 +30,13 @@ def _require(name: str) -> str:
 
 
 settings = Settings(
-    groq_api_key=_require("GROQ_API_KEY"),
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-    aws_region=os.getenv("AWS_REGION", "us-east-1"),
-    s3_bucket_name=os.getenv("S3_BUCKET_NAME", "f1-intelligence-reports"),
+    groq_api_key=os.getenv("GROQ_API_KEY", ""),
+    r2_access_key_id=os.getenv("R2_ACCESS_KEY_ID"),
+    r2_secret_access_key=os.getenv("R2_SECRET_ACCESS_KEY"),
+    r2_account_id=os.getenv("R2_ACCOUNT_ID"),
+    r2_bucket_name=os.getenv("R2_BUCKET_NAME", "f1-intelligence-reports"),
+    r2_public_url=os.getenv("R2_PUBLIC_URL"),
+    disable_r2=os.getenv("DISABLE_R2", "").lower() in ("1", "true", "yes"),
     chroma_persist_dir=os.getenv("CHROMA_PERSIST_DIR", "./knowledge_base/chroma_db"),
     openf1_base_url=os.getenv("OPENF1_BASE_URL", "https://api.openf1.org/v1"),
     log_level=os.getenv("LOG_LEVEL", "INFO"),
