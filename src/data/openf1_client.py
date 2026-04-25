@@ -24,8 +24,6 @@ from tenacity import (
     wait_exponential,
 )
 
-from src.utils.config import settings
-
 logger = logging.getLogger(__name__)
 
 _RETRYABLE = (httpx.TransportError, httpx.HTTPStatusError)
@@ -33,7 +31,10 @@ _RETRYABLE = (httpx.TransportError, httpx.HTTPStatusError)
 
 class OpenF1Client:
     def __init__(self, base_url: str | None = None, timeout: float = 20.0):
-        self._base_url = (base_url or settings.openf1_base_url).rstrip("/")
+        if base_url is None:
+            from src.utils.config import settings
+            base_url = settings.openf1_base_url
+        self._base_url = base_url.rstrip("/")
         self._timeout = timeout
 
     # ---- HTTP ----------------------------------------------------------------

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(update-config)",
+      "Bash(python -m pytest tests/data/test_openf1_client.py -v)",
+      "Bash(pip install *)",
+      "Bash(python3 -m pip install pytest pytest-asyncio httpx tenacity python-dotenv -q)",
+      "Bash(python3 -m pytest tests/data/test_openf1_client.py -v)",
+      "Bash(python3 scripts/fetch_wiki_docs.py --dry-run --only circuits)",
+      "Bash(python3 -m pip install rich -q)",
+      "Bash(python3 scripts/fetch_wiki_docs.py --only circuits)",
+      "Bash(python3 scripts/fetch_wiki_docs.py --only drivers)",
+      "Bash(python3 scripts/fetch_wiki_docs.py --only seasons)",
+      "Bash(python3 -m pip install langchain-community langchain-chroma langchain-text-splitters sentence-transformers chromadb -q)",
+      "Bash(python3 scripts/ingest_docs.py)",
+      "Bash(python *)"
+    ]
+  }
+}

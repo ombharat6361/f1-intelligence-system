@@ -43,7 +43,7 @@ async def report_node(state: RaceReportState) -> dict:
 
     logger.info("report_agent: generating final report")
     llm = ChatGroq(
-        model="llama-3.1-70b-versatile",
+        model="llama-3.3-70b-versatile",
         api_key=settings.groq_api_key,
         temperature=0.5,
     )
@@ -60,11 +60,14 @@ async def report_node(state: RaceReportState) -> dict:
     report = response.content
     s3_url = None
 
-    try:
-        filename = f"{state['season']}_R{state['round_number']:02d}_{state['circuit_name'].replace(' ', '_')}.md"
-        s3_url = await upload_report(report, filename)
-        logger.info("report_agent: uploaded to S3 at %s", s3_url)
-    except Exception as exc:
-        logger.warning("report_agent: S3 upload failed (non-fatal): %s", exc)
+    if settings.disable_r2:
+        logger.info("report_agent: R2 upload disabled")
+    else:
+        try:
+            filename = f"{state['season']}_R{state['round_number']:02d}_{state['circuit_name'].replace(' ', '_')}.md"
+            s3_url = await upload_report(report, filename)
+            logger.info("report_agent: uploaded to S3 at %s", s3_url)
+        except Exception as exc:
+            logger.warning("report_agent: S3 upload failed (non-fatal): %s", exc)
 
     return {"report": report, "s3_report_url": s3_url}
