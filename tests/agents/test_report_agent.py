@@ -14,7 +14,6 @@ from src.state import RaceReportState
 BASE_STATE: RaceReportState = {
     "race_id": "9158",
     "season": 2024,
-    "round_number": 3,
     "circuit_name": "Australia",
     "raw_data": {"race_results": [{"driver_number": 1, "position": 1}]},
     "historical_context": "Albert Park is a street circuit.",
@@ -78,7 +77,6 @@ async def test_report_node_passes_circuit_season_round_to_chain(mock_groq_and_up
     call_kwargs = chain.ainvoke.call_args[0][0]
     assert call_kwargs["circuit_name"] == "Australia"
     assert call_kwargs["season"] == 2024
-    assert call_kwargs["round_number"] == 3
 
 
 async def test_report_node_s3_upload_failure_is_nonfatal():
@@ -95,10 +93,9 @@ async def test_report_node_s3_upload_failure_is_nonfatal():
     assert result["s3_report_url"] is None
 
 
-async def test_report_node_filename_encodes_season_round_circuit(mock_groq_and_upload):
+async def test_report_node_filename_encodes_season_and_circuit(mock_groq_and_upload):
     _, mock_upload = mock_groq_and_upload
     await report_node(BASE_STATE)
     filename = mock_upload.call_args[0][1]
     assert "2024" in filename
-    assert "03" in filename
     assert "Australia" in filename

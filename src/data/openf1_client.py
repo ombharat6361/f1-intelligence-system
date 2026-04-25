@@ -95,11 +95,14 @@ class OpenF1Client:
             })
 
         results.sort(key=lambda r: (r["position"] is None, r["position"] or 999))
+        logger.debug("get_race_results: session=%s drivers=%d positions=%d results=%s",
+                     session_key, len(drivers), len(positions), results)
         return results
 
     async def get_lap_times(self, session_key: str) -> list[dict]:
         """Fastest lap per driver."""
         laps = await self._get("laps", session_key=session_key)
+        logger.debug("get_lap_times: session=%s raw_laps=%d", session_key, len(laps))
 
         fastest: dict[int, dict] = {}
         for lap in laps:
@@ -115,11 +118,14 @@ class OpenF1Client:
                     "lap_number": lap.get("lap_number"),
                 }
 
-        return sorted(fastest.values(), key=lambda r: r["lap_duration"])
+        result = sorted(fastest.values(), key=lambda r: r["lap_duration"])
+        logger.debug("get_lap_times: fastest_laps=%s", result)
+        return result
 
     async def get_pit_stops(self, session_key: str) -> list[dict]:
         """Pit stop count and total duration per driver."""
         stops = await self._get("pit", session_key=session_key)
+        logger.debug("get_pit_stops: session=%s raw_stops=%d", session_key, len(stops))
 
         agg: dict[int, dict] = defaultdict(lambda: {"count": 0, "total_duration": 0.0, "stops": []})
         for s in stops:
@@ -136,14 +142,43 @@ class OpenF1Client:
                 "pit_duration": duration,
             })
 
-        return [
-            {"driver_number": num, **data}
-            for num, data in sorted(agg.items())
-        ]
+        result = [{"driver_number": num, **data} for num, data in sorted(agg.items())]
+        logger.debug("get_pit_stops: session=%s result=%s", session_key, result)
+        return result
+
+    async def get_race_session(self, year: int, circuit_query: str) -> dict | None:
+        """
+        Look up the Race session for a given year and circuit name.
+
+        Matches circuit_query (case-insensitive) against circuit_short_name,
+        location, and country_name. Returns {"session_key": str, "circuit_name": str}
+        or None if no match found.
+        """
+        sessions = await self._get("sessions", year=year, session_name="Race")
+        query = circuit_query.lower()
+        for s in sessions:
+            candidates = [
+                s.get("circuit_short_name", ""),
+                s.get("location", ""),
+                s.get("country_name", ""),
+            ]
+            if any(query in c.lower() for c in candidates):
+                circuit_name = (
+                    s.get("circuit_short_name")
+                    or s.get("location")
+                    or s.get("country_name")
+                    or "Unknown"
+                )
+                logger.debug("get_race_session: year=%s query=%s matched=%s session_key=%s",
+                             year, circuit_query, circuit_name, s["session_key"])
+                return {"session_key": str(s["session_key"]), "circuit_name": circuit_name}
+        logger.debug("get_race_session: year=%s query=%s no match found", year, circuit_query)
+        return None
 
     async def get_sector_times(self, session_key: str) -> list[dict]:
         """Fastest sector 1/2/3 per driver."""
         laps = await self._get("laps", session_key=session_key)
+        logger.debug("get_sector_times: session=%s raw_laps=%d", session_key, len(laps))
 
         best: dict[int, dict] = defaultdict(lambda: {"s1": None, "s2": None, "s3": None})
         for lap in laps:
@@ -158,7 +193,9 @@ class OpenF1Client:
                 if current is None or v < current:
                     best[num][key] = v
 
-        return [{"driver_number": num, **data} for num, data in sorted(best.items())]
+        result = [{"driver_number": num, **data} for num, data in sorted(best.items())]
+        logger.debug("get_sector_times: session=%s result=%s", session_key, result)
+        return result
 
 
 # ---- helpers ----------------------------------------------------------------

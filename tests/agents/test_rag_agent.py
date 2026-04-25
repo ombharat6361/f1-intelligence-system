@@ -15,7 +15,6 @@ from src.state import RaceReportState
 BASE_STATE: RaceReportState = {
     "race_id": "9158",
     "season": 2024,
-    "round_number": 3,
     "circuit_name": "Australia",
     "raw_data": {"race_results": []},
     "historical_context": "",

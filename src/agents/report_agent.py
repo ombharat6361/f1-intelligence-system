@@ -21,7 +21,7 @@ REPORT_PROMPT = ChatPromptTemplate.from_messages([
     )),
     ("human", (
         "Generate a comprehensive post-race report for the {circuit_name} Grand Prix "
-        "(Season {season}, Round {round_number}).\n\n"
+        "(Season {season}).\n\n"
         "## Analysis Findings\n{analysis}\n\n"
         "## Raw Race Data\n{raw_data}\n\n"
         "Structure the report with EXACTLY these sections:\n"
@@ -43,7 +43,7 @@ async def report_node(state: RaceReportState) -> dict:
 
     logger.info("report_agent: generating final report")
     llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model=settings.model_name,
         api_key=settings.groq_api_key,
         temperature=0.5,
     )
@@ -52,7 +52,6 @@ async def report_node(state: RaceReportState) -> dict:
     response = await chain.ainvoke({
         "circuit_name": state["circuit_name"],
         "season": state["season"],
-        "round_number": state["round_number"],
         "analysis": state.get("analysis", ""),
         "raw_data": str(state.get("raw_data", {})),
     })
@@ -64,7 +63,7 @@ async def report_node(state: RaceReportState) -> dict:
         logger.info("report_agent: R2 upload disabled")
     else:
         try:
-            filename = f"{state['season']}_R{state['round_number']:02d}_{state['circuit_name'].replace(' ', '_')}.md"
+            filename = f"{state['season']}_{state['circuit_name'].replace(' ', '_')}.md"
             s3_url = await upload_report(report, filename)
             logger.info("report_agent: uploaded to S3 at %s", s3_url)
         except Exception as exc:

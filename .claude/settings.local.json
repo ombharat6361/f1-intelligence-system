@@ -13,7 +13,9 @@
       "Bash(python3 scripts/fetch_wiki_docs.py --only seasons)",
       "Bash(python3 -m pip install langchain-community langchain-chroma langchain-text-splitters sentence-transformers chromadb -q)",
       "Bash(python3 scripts/ingest_docs.py)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(C:\\\\Users\\\\ombha\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\python.exe *)",
+      "Bash(.venv\\\\Scripts\\\\python.exe -m pytest tests/agents/ tests/rag/ tests/test_graph.py -q)"
     ]
   }
 }

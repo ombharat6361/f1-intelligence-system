@@ -31,7 +31,11 @@ async def rag_node(state: RaceReportState) -> dict:
 
     chunks: list[str] = []
     for query in queries:
+        logger.debug("rag_agent: query=%s", query)
         docs = await retriever.ainvoke(query)
+        for doc in docs:
+            logger.debug("rag_agent: chunk (source=%s): %s",
+                         doc.metadata.get("source", "unknown"), doc.page_content[:200])
         chunks.extend(doc.page_content for doc in docs)
 
     # Deduplicate while preserving order

@@ -1,23 +1,35 @@
 """
 Chainlit UI for the F1 Intelligence System.
 
-Users provide a session key (OpenF1 race_id) plus optional metadata.
-The LangGraph pipeline runs and streams step-by-step progress, then
-renders the final markdown report in the chat.
+Conversational interface: users ask for a race in natural language, get a
+structured report, then ask follow-up questions about the data.
 
 Start with:
     chainlit run chainlit_app/app.py
 """
 
+import json
+import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import chainlit as cl
+from langchain_groq import ChatGroq
 from src.graph import build_graph
+from src.utils.config import settings
 
-# Build once at startup — embedding model load is expensive.
+logging.basicConfig(
+    level=settings.log_level.upper(),
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    handlers=[
+        logging.FileHandler("f1_intelligence.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+
 _graph = build_graph()
 
 _STEPS = {
@@ -28,24 +40,92 @@ _STEPS = {
 }
 
 
+async def _llm_json(prompt: str) -> dict | None:
+    llm = ChatGroq(model=settings.model_name, api_key=settings.groq_api_key, temperature=0)
+    response = await llm.ainvoke(prompt)
+    try:
+        return json.loads(response.content)
+    except Exception:
+        return None
+
+
+async def _extract_race(text: str) -> dict | None:
+    current_year = datetime.now().year
+    return await _llm_json(
+        f"Extract the F1 race year and circuit name from this message.\n"
+        f"Current year: {current_year}. The ongoing F1 season is {current_year}.\n"
+        f'Respond with ONLY valid JSON: {{"year": <int>, "circuit": "<string>"}}\n'
+        f'If you cannot determine both, respond with: {{"error": "unclear"}}\n\n'
+        f"Message: {text}"
+    )
+
+
+async def _classify_intent(text: str) -> dict | None:
+    current_year = datetime.now().year
+    return await _llm_json(
+        f"You are an intent classifier for an F1 analysis chatbot. "
+        f"The user has just received a race report and is now sending a follow-up message.\n\n"
+        f"Determine the user's intent:\n"
+        f"1. Asking a question about the current race (follow-up)\n"
+        f"2. Requesting a report for a different race (new race)\n\n"
+        f"Current year: {current_year}. The ongoing F1 season is {current_year}.\n\n"
+        f'If follow-up, respond: {{"intent": "follow_up"}}\n'
+        f'If new race, respond: {{"intent": "new_race", "year": <int>, "circuit": "<string>"}}\n\n'
+        f"Message: {text}"
+    )
+
+
+async def _answer_follow_up(question: str) -> str:
+    raw_data = cl.user_session.get("raw_data")
+    report = cl.user_session.get("report")
+    circuit_name = cl.user_session.get("circuit_name")
+    season = cl.user_session.get("season")
+
+    llm = ChatGroq(model=settings.model_name, api_key=settings.groq_api_key, temperature=0.3)
+    prompt = (
+        f"You are an expert F1 analyst. The user is asking about the "
+        f"{circuit_name} Grand Prix {season}.\n\n"
+        f"## Race Data\n{json.dumps(raw_data, indent=2)}\n\n"
+        f"## Generated Report\n{report}\n\n"
+        f"Answer the user's question concisely using the data above. "
+        f"If the data doesn't contain the answer, say so.\n\n"
+        f"Question: {question}"
+    )
+    response = await llm.ainvoke(prompt)
+    return response.content
+
+
+async def _handle_race_request(year: int, circuit: str):
+    """Look up session and run the pipeline for a race."""
+    async with cl.Step(name="Looking up session…", show_input=False):
+        from src.data.openf1_client import OpenF1Client
+        session = await OpenF1Client().get_race_session(year, circuit)
+
+    if session is None:
+        await cl.Message(
+            content=f"Couldn't find a race matching '{circuit}' in {year}. Try a different name."
+        ).send()
+        return
+
+    cl.user_session.set("race_id", session["session_key"])
+    cl.user_session.set("season", year)
+    cl.user_session.set("circuit_name", session["circuit_name"])
+    await cl.Message(
+        content=f"Found: **{session['circuit_name']} Grand Prix {year}**. Generating report…"
+    ).send()
+    await run_pipeline()
+
+
 @cl.on_chat_start
 async def on_chat_start():
     await cl.Message(
         content=(
             "## F1 Intelligence System\n\n"
-            "I generate a post-race intelligence report for any Formula 1 session "
-            "in the [OpenF1](https://openf1.org) database.\n\n"
-            "**To get started, provide the OpenF1 session key.**\n"
-            "You can find it at `https://api.openf1.org/v1/sessions` — "
-            "look for the `session_key` field of the race you want.\n\n"
-            "Example: `9158` → 2024 Australian Grand Prix"
+            "I generate post-race intelligence reports and answer questions about any Formula 1 race.\n\n"
+            "Which race would you like? (e.g. `2024 Australian GP`, `last year's Monaco race`)"
         )
     ).send()
-
-    await cl.Message(
-        content="Please enter the **OpenF1 session key** (e.g. `9158`):"
-    ).send()
-    cl.user_session.set("awaiting", "session_key")
+    cl.user_session.set("awaiting", "race_query")
 
 
 @cl.on_message
@@ -53,65 +133,46 @@ async def on_message(message: cl.Message):
     awaiting = cl.user_session.get("awaiting")
     text = message.content.strip()
 
-    # --- collect inputs one at a time ---
+    if awaiting == "race_query":
+        async with cl.Step(name="Understanding your request…", show_input=False):
+            extracted = await _extract_race(text)
 
-    if awaiting == "session_key":
-        if not text.isdigit():
-            await cl.Message(content="That doesn't look like a valid session key. Please enter a number.").send()
+        if not extracted or "error" in extracted:
+            await cl.Message(
+                content="I couldn't work out which race you meant. Try something like `2024 Australian GP` or `Monaco 2023`."
+            ).send()
             return
-        cl.user_session.set("race_id", text)
-        cl.user_session.set("awaiting", "season")
-        await cl.Message(content="Got it. What **season** (year) is this race from? (e.g. `2024`)").send()
+
+        await _handle_race_request(extracted["year"], extracted["circuit"])
         return
 
-    if awaiting == "season":
-        if not text.isdigit() or not (2018 <= int(text) <= 2030):
-            await cl.Message(content="Please enter a valid season year between 2018 and 2030.").send()
+    if awaiting == "follow_up":
+        async with cl.Step(name="Understanding your request…", show_input=False):
+            intent = await _classify_intent(text)
+
+        if intent and intent.get("intent") == "new_race" and "year" in intent and "circuit" in intent:
+            await _handle_race_request(intent["year"], intent["circuit"])
             return
-        cl.user_session.set("season", int(text))
-        cl.user_session.set("awaiting", "round_number")
-        await cl.Message(content="What is the **round number** in that season? (e.g. `3`)").send()
+
+        async with cl.Step(name="Answering…", show_input=False):
+            answer = await _answer_follow_up(text)
+        await cl.Message(content=answer).send()
         return
 
-    if awaiting == "round_number":
-        if not text.isdigit() or not (1 <= int(text) <= 24):
-            await cl.Message(content="Please enter a round number between 1 and 24.").send()
-            return
-        cl.user_session.set("round_number", int(text))
-        cl.user_session.set("awaiting", "circuit_name")
-        await cl.Message(content="Finally, what is the **circuit name**? (e.g. `Melbourne`, `Monaco`)").send()
-        return
-
-    if awaiting == "circuit_name":
-        cl.user_session.set("circuit_name", text)
-        cl.user_session.set("awaiting", None)
-        await run_pipeline()
-        return
-
-    # If no active flow, offer to run another report.
+    cl.user_session.set("awaiting", "race_query")
     await cl.Message(
-        content="Enter a new **OpenF1 session key** to generate another report:"
+        content="Which race would you like? (e.g. `2024 Australian GP`, `last year's Monaco race`)"
     ).send()
-    cl.user_session.set("awaiting", "session_key")
 
 
 async def run_pipeline():
     race_id      = cl.user_session.get("race_id")
     season       = cl.user_session.get("season")
-    round_number = cl.user_session.get("round_number")
     circuit_name = cl.user_session.get("circuit_name")
-
-    await cl.Message(
-        content=(
-            f"Running pipeline for **{circuit_name} Grand Prix** "
-            f"(Season {season}, Round {round_number}, Session `{race_id}`)…"
-        )
-    ).send()
 
     initial_state = {
         "race_id":      race_id,
         "season":       season,
-        "round_number": round_number,
         "circuit_name": circuit_name,
         "raw_data":     {},
         "historical_context": "",
@@ -137,14 +198,16 @@ async def run_pipeline():
 
     if result.get("error"):
         await cl.Message(
-            content=f"Pipeline failed: `{result['error']}`\n\nCheck the session key and try again."
+            content=f"Pipeline failed: `{result['error']}`\n\nTry a different race."
         ).send()
-        cl.user_session.set("awaiting", "session_key")
-        await cl.Message(content="Enter a new **OpenF1 session key** to try again:").send()
+        cl.user_session.set("awaiting", "race_query")
         return
 
     report = result.get("report", "")
     s3_url = result.get("s3_report_url")
+
+    cl.user_session.set("raw_data", result.get("raw_data", {}))
+    cl.user_session.set("report", report)
 
     if report:
         await cl.Message(content=report).send()
@@ -152,7 +215,5 @@ async def run_pipeline():
     if s3_url:
         await cl.Message(content=f"Report uploaded: [{s3_url}]({s3_url})").send()
 
-    await cl.Message(
-        content="Report complete. Enter another **OpenF1 session key** to generate a new report:"
-    ).send()
-    cl.user_session.set("awaiting", "session_key")
+    await cl.Message(content="Ask me anything about this race, or request a different one.").send()
+    cl.user_session.set("awaiting", "follow_up")

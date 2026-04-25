@@ -20,6 +20,7 @@ class Settings:
     chroma_persist_dir: str
     openf1_base_url: str
     log_level: str
+    model_name: str
 
 
 def _require(name: str) -> str:
@@ -40,4 +41,5 @@ settings = Settings(
     chroma_persist_dir=os.getenv("CHROMA_PERSIST_DIR", "./knowledge_base/chroma_db"),
     openf1_base_url=os.getenv("OPENF1_BASE_URL", "https://api.openf1.org/v1"),
     log_level=os.getenv("LOG_LEVEL", "INFO"),
+    model_name=os.getenv("MODEL_NAME", "llama-3.3-70b-versatile"),
 )
