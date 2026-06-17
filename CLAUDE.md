@@ -11,15 +11,15 @@ Core pipeline and UI are fully implemented. Knowledge base is populated. All tes
 - `src/agents/` — all four agent nodes (`data_agent`, `rag_agent`, `analysis_agent`, `report_agent`).
 - `src/state.py` — `RaceReportState` TypedDict shared across all nodes.
 - `src/graph.py` — LangGraph wiring; compiles via `build_graph()`, used as a singleton in the Chainlit app.
-- `src/data/openf1_client.py` — async `OpenF1Client` with `get_race_results`, `get_lap_times`, `get_pit_stops`, `get_sector_times`. Uses `httpx` + `tenacity` retries; gracefully degrades on missing/empty API responses. Config import is lazy (no env var needed at import time).
+- `src/data/fastf1_client.py` — `FastF1Client` with `get_race_results`, `get_lap_times`, `get_pit_stops`, `get_sector_times`, `get_weather`, `get_circuit_name`. Uses `fastf1` library with local file cache; `session.load()` runs in a thread executor to avoid blocking the event loop. All methods return `[]` on failure (graceful degradation). Config import is lazy.
 - `src/utils/config.py` — frozen dataclass `Settings` loaded from env via `python-dotenv`. `GROQ_API_KEY` defaults to `""` at load time and only fails when `ChatGroq` is instantiated — other parts of the system (ingestion, data fetching) can import without the key set.
 - `src/utils/s3_uploader.py` — async `upload_report(report, filename)` uploading to **Cloudflare R2** via boto3 (S3-compatible, custom endpoint `https://<account_id>.r2.cloudflarestorage.com`). Returns `R2_PUBLIC_URL/<filename>` if set, otherwise the internal endpoint path. Upload failure in `report_agent` is non-fatal.
 - `src/rag/retriever.py` — exports `get_retriever(top_k)` returning a LangChain retriever over a local ChromaDB store. Embedding model: `sentence-transformers/all-MiniLM-L6-v2` (local, no API key). Module-level cached. Returns `[]` gracefully if the store is empty.
-- `chainlit_app/app.py` — Chainlit UI. Collects session key, season, round number, circuit name via conversational prompts, streams pipeline progress using nested `cl.Step`, renders the final markdown report, and posts the R2 URL if available.
+- `chainlit_app/app.py` — Chainlit UI. Collects season, round number, and optional circuit name (auto-detected by FastF1 if omitted) via conversational prompts, streams pipeline progress using nested `cl.Step`, renders the final markdown report, and posts the R2 URL if available.
 - `scripts/fetch_wiki_docs.py` — fetches 55 Wikipedia articles (24 circuits, 26 drivers, 5 seasons 2020–2024) into `knowledge_base/raw_docs/`. Skips already-downloaded files, rate-limits at 0.5 s/request. Supports `--only {circuits,drivers,seasons}`, `--seasons`, `--dry-run`.
 - `scripts/ingest_docs.py` — chunks `.txt`/`.md`/`.pdf` files from `knowledge_base/raw_docs/` and embeds them into ChromaDB. Supports `--reset` to wipe and re-ingest.
 - `knowledge_base/raw_docs/` — populated with 55 Wikipedia articles (3 078 chunks in ChromaDB).
-- `tests/data/test_openf1_client.py` — 12 integration tests against the live OpenF1 API (session `9158`, 2024 Australian GP).
+- `tests/data/test_fastf1_client.py` — 15 unit tests with mocked FastF1 session data.
 - `tests/agents/` — tests for all four agent nodes.
 - `tests/rag/` — tests for the retriever.
 - `pytest.ini` — sets `asyncio_mode = auto`.
@@ -30,7 +30,7 @@ Core pipeline and UI are fully implemented. Knowledge base is populated. All tes
 
 ## Architecture
 
-The system is a LangGraph pipeline that generates a post-race F1 intelligence report. All nodes share `RaceReportState` (`src/state.py`), a TypedDict seeded with `race_id` (OpenF1 session key), `season`, `round_number`, `circuit_name`.
+The system is a LangGraph pipeline that generates a post-race F1 intelligence report. All nodes share `RaceReportState` (`src/state.py`), a TypedDict seeded with `season`, `round_number`, `circuit_name`.
 
 Flow:
 
@@ -38,20 +38,20 @@ Flow:
 data_agent → rag_agent → analysis_agent → report_agent → END
 ```
 
-- **data_agent** populates `state["raw_data"]` from OpenF1. On exception it sets `state["error"]`; downstream nodes check this and return `{}` to short-circuit.
+- **data_agent** populates `state["raw_data"]` from FastF1 (race results, lap times, pit stops, sector times, weather). On exception it sets `state["error"]`; downstream nodes check this and return `{}` to short-circuit. Auto-populates `circuit_name` from FastF1 session metadata if not provided.
 - **rag_agent** runs three queries (circuit history, drivers, season context) against ChromaDB, dedupes chunks, writes `state["historical_context"]`.
-- **analysis_agent** calls Groq (`llama-3.1-70b-versatile`) to identify 4–6 race storylines from raw data + historical context.
+- **analysis_agent** calls Groq (`llama-3.3-70b-versatile`) to identify 4–6 race storylines from raw data + historical context.
 - **report_agent** calls Groq to generate a fixed-section Markdown report, then attempts R2 upload (non-fatal on failure, can be disabled via `DISABLE_R2=true`).
 
-The error-propagation contract (each node checks `state.get("error")` and no-ops) keeps a failed OpenF1 fetch from crashing the whole graph — preserve it when adding nodes.
+The error-propagation contract (each node checks `state.get("error")` and no-ops) keeps a failed data fetch from crashing the whole graph — preserve it when adding nodes.
 
 ## Commands
 
-- Install: `pip install -r requirements.txt`
-- Fetch knowledge base docs: `python scripts/fetch_wiki_docs.py`
-- Ingest into ChromaDB: `python scripts/ingest_docs.py [--reset]`
-- Tests: `pytest` (single test: `pytest tests/path/to/test_file.py::test_name`)
-- Chainlit UI: `chainlit run chainlit_app/app.py`
+- Install: `uv sync`
+- Fetch knowledge base docs: `uv run python scripts/fetch_wiki_docs.py`
+- Ingest into ChromaDB: `uv run python scripts/ingest_docs.py [--reset]`
+- Tests: `uv run pytest` (single test: `uv run pytest tests/path/to/test_file.py::test_name`)
+- Chainlit UI: `uv run chainlit run chainlit_app/app.py`
 
 ## Environment variables
 
@@ -67,6 +67,6 @@ All vars are documented in `.env.example`. Required to run the full pipeline:
 | `R2_BUCKET_NAME` | R2 bucket name (default: `f1-intelligence-reports`) |
 | `R2_PUBLIC_URL` | Optional public URL base for uploaded reports |
 | `CHROMA_PERSIST_DIR` | Local path to ChromaDB store (default: `./knowledge_base/chroma_db`) |
-| `OPENF1_BASE_URL` | OpenF1 API base (default: `https://api.openf1.org/v1`) |
+| `FASTF1_CACHE_DIR` | Local path to FastF1 cache (default: `./cache/fastf1`) |
 
 R2 vars are optional — set `DISABLE_R2=true` to skip upload, and the report still renders in the UI. Upload failure is always non-fatal.

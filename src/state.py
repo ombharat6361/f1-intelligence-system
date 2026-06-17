@@ -5,7 +5,6 @@ class RaceReportState(TypedDict):
     """Shared state passed between all LangGraph nodes."""
 
     # Input
-    race_id: str          # e.g. "9158"  (OpenF1 session key)
     season: int           # e.g. 2024
     round_number: int     # e.g. 5
     circuit_name: str     # e.g. "Monaco"

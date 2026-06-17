@@ -12,7 +12,6 @@ from src.agents.report_agent import report_node
 from src.state import RaceReportState
 
 BASE_STATE: RaceReportState = {
-    "race_id": "9158",
     "season": 2024,
     "round_number": 3,
     "circuit_name": "Australia",

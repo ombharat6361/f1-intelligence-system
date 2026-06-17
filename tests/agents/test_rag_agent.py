@@ -13,7 +13,6 @@ from src.agents.rag_agent import rag_node
 from src.state import RaceReportState
 
 BASE_STATE: RaceReportState = {
-    "race_id": "9158",
     "season": 2024,
     "round_number": 3,
     "circuit_name": "Australia",

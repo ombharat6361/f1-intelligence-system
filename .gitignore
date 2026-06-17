@@ -7,6 +7,9 @@ __pycache__/
 venv/
 *.egg-info/
 
+# FastF1 cache
+cache/fastf1/
+
 # ChromaDB local data
 knowledge_base/chroma_db/
 

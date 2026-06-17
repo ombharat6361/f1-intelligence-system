@@ -18,7 +18,7 @@ class Settings:
     r2_public_url: str | None   # optional custom domain or R2 public URL base
     disable_r2: bool
     chroma_persist_dir: str
-    openf1_base_url: str
+    fastf1_cache_dir: str
     log_level: str
 
 
@@ -38,6 +38,6 @@ settings = Settings(
     r2_public_url=os.getenv("R2_PUBLIC_URL"),
     disable_r2=os.getenv("DISABLE_R2", "").lower() in ("1", "true", "yes"),
     chroma_persist_dir=os.getenv("CHROMA_PERSIST_DIR", "./knowledge_base/chroma_db"),
-    openf1_base_url=os.getenv("OPENF1_BASE_URL", "https://api.openf1.org/v1"),
+    fastf1_cache_dir=os.getenv("FASTF1_CACHE_DIR", "./cache/fastf1"),
     log_level=os.getenv("LOG_LEVEL", "INFO"),
 )
