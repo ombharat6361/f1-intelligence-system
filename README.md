@@ -195,4 +195,4 @@ All tests are mocked — no network calls or API keys needed. Runs in ~2 seconds
 
 ## License
 
-MIT
+MIT License
